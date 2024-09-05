@@ -1,0 +1,25 @@
+<resources>
+    <!-- Base application theme. -->
+    <style name="Theme.PranWeb" parent="Theme.Material3.Light">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">#3590FF</item>
+        <item name="colorPrimaryVariant">#1B6ED2</item>
+        <item name="colorSecondaryContainer">#43ACCDF4</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="android:windowBackground">@color/white</item>
+        <!-- Customize your theme here. -->
+    </style>
+
+    <style name="Theme.PranWeb.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <style name="NavigationDrawer" parent="ThemeOverlay.AppCompat.Light">
+        <item name="colorControlHighlight">#A88DBAF2</item>
+    </style>
+
+    <style name="Theme.PranWeb.AppBarOverlay" parent="ThemeOverlay.Material3.Dark.ActionBar" />
+    <style name="Theme.PranWeb.PopupOverlay" parent="ThemeOverlay.Material3.Light" />
+
+</resources>
