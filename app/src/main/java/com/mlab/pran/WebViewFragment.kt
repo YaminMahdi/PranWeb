@@ -1,4 +1,4 @@
-package com.mlab.pran.ui
+package com.mlab.pran
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -10,32 +10,54 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.Toolbar
+import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
-import com.mlab.pran.R
-import com.mlab.pran.Website
 import com.mlab.pran.databinding.FragmentWebViewBinding
-import com.mlab.pran.pageName
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 
 class WebViewFragment : Fragment() {
     private lateinit var binding: FragmentWebViewBinding
-    private var url: String? = null
+    private val viewModel by activityViewModels<MainViewModel>()
 
-    private val permissionRequestLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        Log.d(TAG, "Permission granted: $it")
-    }
+    private var filePickerCallback: ValueCallback<Array<Uri>>? = null
+    private val permissionRequestLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            Log.d(TAG, "Permission granted: $it")
+        }
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+    private val launcherFilePicker =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            it.data?.apply {
+                clipData?.apply {
+                    val uris = mutableListOf<Uri>()
+                    for (i in 0 until itemCount) {
+                        uris.add(getItemAt(i).uri)
+                    }
+                    filePickerCallback?.onReceiveValue(uris.toTypedArray())
+                } ?: data?.apply {
+                    filePickerCallback?.onReceiveValue(arrayOf(this))
+                }
+            }
+        }
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
         binding = FragmentWebViewBinding.inflate(inflater, container, false)
         return binding.root
     }
@@ -57,7 +79,9 @@ class WebViewFragment : Fragment() {
                     webView.goForward()
             }
             btnHome.setOnClickListener {
-                url?.let { webView.loadUrl(it) }
+                arguments?.getString("url")?.let {
+                    webView.loadUrl(it)
+                }
             }
             btnRefresh.setOnClickListener {
                 binding.progressBar.visibility = View.VISIBLE
@@ -68,9 +92,13 @@ class WebViewFragment : Fragment() {
             }
         }
         activity?.onBackPressedDispatcher?.addCallback(viewLifecycleOwner) {
-            if (binding.webView.canGoBack()) {
+            val drawer = activity?.findViewById<DrawerLayout>(R.id.drawer_layout)
+            if (drawer?.isDrawerOpen(GravityCompat.START) == true) {
+                drawer.close()
+                return@addCallback
+            } else if (binding.webView.canGoBack())
                 binding.webView.goBack()
-            } else {
+            else {
                 isEnabled = false
                 activity?.onBackPressedDispatcher?.onBackPressed()
                 isEnabled = true
@@ -81,8 +109,6 @@ class WebViewFragment : Fragment() {
     @Suppress("DEPRECATION")
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        url = arguments?.getString("url")
-        currentUrl = url
         val dbPath =
             context?.getDir("database", Context.MODE_PRIVATE)?.path
 
@@ -91,6 +117,7 @@ class WebViewFragment : Fragment() {
                 setSupportMultipleWindows(true)
                 setSupportZoom(true)
                 builtInZoomControls = true
+                displayZoomControls = false
                 domStorageEnabled = true
                 databaseEnabled = true
                 databasePath = dbPath
@@ -117,13 +144,25 @@ class WebViewFragment : Fragment() {
 
                 @Deprecated("Deprecated")
                 override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-                    currentUrl = url
+                    viewModel.url = url
+                    viewModel.setLastBrowsedLink(url)
                     when {
+                        url.startsWith("intent://") ->
+                            startActivity(Intent.parseUri(url, Intent.URI_INTENT_SCHEME))
+
                         url.startsWith("tel:") ->
                             startActivity(Intent(Intent.ACTION_DIAL, Uri.parse(url)))
 
                         url.startsWith("mailto:") ->
                             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+
+                        url.contains("youtube.com/") || url.contains("youtu.be/") ->
+                            startActivity(
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    Uri.parse(url)
+                                ).setPackage("com.google.android.youtube")
+                            )
 
                         else -> {
                             view.loadUrl(url)
@@ -135,10 +174,45 @@ class WebViewFragment : Fragment() {
             }
             webChromeClient = object : WebChromeClient() {
                 // Grant permissions for cam
+                override fun onShowFileChooser(
+                    webView: WebView?,
+                    filePathCallback: ValueCallback<Array<Uri>>?,
+                    fileChooserParams: FileChooserParams?
+                ): Boolean {
+                    filePickerCallback = filePathCallback
+                    when (fileChooserParams?.mode) {
+                        FileChooserParams.MODE_OPEN ->
+                            launcherFilePicker.launch(
+                                Intent.createChooser(Intent().setType("*/*").setAction(Intent.ACTION_GET_CONTENT), "Select a file")
+                            )
+                        FileChooserParams.MODE_OPEN_MULTIPLE ->
+                            launcherFilePicker.launch(
+                                Intent.createChooser(
+                                    Intent().setType("*/*").setAction(Intent.ACTION_GET_CONTENT)
+                                        .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), "Select a file"
+                                )
+                            )
+                    }
+                    return true
+                }
+
                 override fun onPermissionRequest(request: PermissionRequest) {
                     Log.d(TAG, "onPermissionRequest")
                     lifecycleScope.launch {
                         Log.d(TAG, request.origin.toString())
+                        request.resources.forEach {
+                            when (it) {
+                                PermissionRequest.RESOURCE_VIDEO_CAPTURE ->
+                                    permissionRequestLauncher.launch(android.Manifest.permission.CAMERA)
+
+                                PermissionRequest.RESOURCE_AUDIO_CAPTURE ->
+                                    permissionRequestLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+
+                                PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID ->
+                                    permissionRequestLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+
+                            }
+                        }
                         if (request.toString() == "file:///") {
                             Log.d(TAG, "GRANTED")
                             request.grant(request.resources)
@@ -151,15 +225,25 @@ class WebViewFragment : Fragment() {
 
             }
         }
-        url?.let { binding.webView.loadUrl(it) }
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        currentUrl = null
+    override fun onResume() {
+        super.onResume()
+        arguments?.getString("url").website.apply {
+            val toolbar = activity?.findViewById<Toolbar>(R.id.toolbar)
+            toolbar?.title = if (pageName == "Home") "PRAN-RFL Group" else pageName
+        }
+        binding.webView.loadUrl(viewModel.getLastBrowsedLink())
     }
+
+    override fun onPause() {
+        super.onPause()
+        binding.webView.url?.let {
+            viewModel.setLastBrowsedLink(it, arguments?.getInt("index") ?: 0)
+        }
+    }
+
     companion object {
         private const val TAG = "WebViewFragment"
-        var currentUrl: String? = null
     }
 }
