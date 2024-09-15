@@ -9,13 +9,9 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.PermissionRequest
-import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.webkit.*
 import androidx.activity.addCallback
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.GravityCompat
@@ -32,31 +28,64 @@ class WebViewFragment : Fragment() {
     private lateinit var binding: FragmentWebViewBinding
     private val viewModel by activityViewModels<MainViewModel>()
 
-    private var filePickerCallback: ValueCallback<Array<Uri>>? = null
+    private var permissionRequest: PermissionRequest? = null
     private val permissionRequestLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            Log.d(TAG, "Permission granted: $it")
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+            Log.d(TAG, "Permission granted: $isGranted")
+            permissionRequest?.apply {
+                if (isGranted) {
+                    grant(resources)
+//                    if(photoUri!= null)
+//                        launcherCamera.launch(photoUri)
+                }
+                else deny()
+            }
         }
 
+    private var filePickerCallback: ValueCallback<Array<Uri>>? = null
     private val launcherFilePicker =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            Log.d(TAG, "registerForActivityResult: ${it.data?.data}")
             it.data?.apply {
                 clipData?.apply {
                     val uris = mutableListOf<Uri>()
                     for (i in 0 until itemCount) {
                         uris.add(getItemAt(i).uri)
                     }
+                    Log.d(TAG, "registerForActivityResult: $uris")
                     filePickerCallback?.onReceiveValue(uris.toTypedArray())
                 } ?: data?.apply {
                     filePickerCallback?.onReceiveValue(arrayOf(this))
                 }
             }
         }
+    private val launcherSingleMediaPicker =
+        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) {
+            Log.d(TAG, "registerForActivityResult: $it")
+            it?.let {
+                filePickerCallback?.onReceiveValue(arrayOf(it))
+            }
+        }
+
+    private val launcherMultipleMediaPicker =
+        registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) {
+            Log.d(TAG, "registerForActivityResult: $it")
+            filePickerCallback?.onReceiveValue(it.toTypedArray())
+        }
+
+//    private var photoUri: Uri? = null
+//    private val launcherCamera =
+//        registerForActivityResult(ActivityResultContracts.TakePicture()) {
+//            Log.d(TAG, "registerForActivityResult: $it")
+//            if (it && photoUri != null)
+//                filePickerCallback?.onReceiveValue(listOfNotNull(photoUri).toTypedArray())
+//            photoUri = null
+//        }
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
-        savedInstanceState: Bundle?
+        savedInstanceState: Bundle?,
     ): View {
         binding = FragmentWebViewBinding.inflate(inflater, container, false)
         return binding.root
@@ -93,10 +122,9 @@ class WebViewFragment : Fragment() {
         }
         activity?.onBackPressedDispatcher?.addCallback(viewLifecycleOwner) {
             val drawer = activity?.findViewById<DrawerLayout>(R.id.drawer_layout)
-            if (drawer?.isDrawerOpen(GravityCompat.START) == true) {
+            if (drawer?.isDrawerOpen(GravityCompat.START) == true)
                 drawer.close()
-                return@addCallback
-            } else if (binding.webView.canGoBack())
+            else if (binding.webView.canGoBack())
                 binding.webView.goBack()
             else {
                 isEnabled = false
@@ -129,8 +157,8 @@ class WebViewFragment : Fragment() {
                 javaScriptCanOpenWindowsAutomatically = true
                 allowContentAccess = true
                 allowFileAccess = true
-                allowFileAccessFromFileURLs = true
-                allowUniversalAccessFromFileURLs = true
+//                allowFileAccessFromFileURLs = true
+//                allowUniversalAccessFromFileURLs = true
             }
             binding.progressBar.progress = progress
             webViewClient = object : WebViewClient() {
@@ -140,6 +168,13 @@ class WebViewFragment : Fragment() {
                         delay(500)
                         binding.progressBar.visibility = View.INVISIBLE
                     }
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                ): WebResourceResponse? {
+                    return super.shouldInterceptRequest(view, request)
                 }
 
                 @Deprecated("Deprecated")
@@ -158,10 +193,7 @@ class WebViewFragment : Fragment() {
 
                         url.contains("youtube.com/") || url.contains("youtu.be/") ->
                             startActivity(
-                                Intent(
-                                    Intent.ACTION_VIEW,
-                                    Uri.parse(url)
-                                ).setPackage("com.google.android.youtube")
+                                Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.google.android.youtube")
                             )
 
                         else -> {
@@ -173,30 +205,75 @@ class WebViewFragment : Fragment() {
                 }
             }
             webChromeClient = object : WebChromeClient() {
+
                 // Grant permissions for cam
                 override fun onShowFileChooser(
                     webView: WebView?,
                     filePathCallback: ValueCallback<Array<Uri>>?,
-                    fileChooserParams: FileChooserParams?
+                    fileChooserParams: FileChooserParams?,
                 ): Boolean {
                     filePickerCallback = filePathCallback
+                    val acceptTypes= fileChooserParams?.acceptTypes?.toList().orEmpty()
+                    Log.d(TAG, "onShowFileChooser: $acceptTypes")
+//                    val captureEnabled = fileChooserParams?.isCaptureEnabled ?: false
+                    val isPhoto = acceptTypes.find {
+                        it.contains("image/") || it == ".jpg" || it == ".jpeg" || it == ".png"
+                    } != null
+                    val isVideo = acceptTypes.find {
+                        it.contains("video/") || it.equals(".mp4") || it == ".avi" || it == ".mkv"
+                    } != null
+//                    val capturePhoto = captureEnabled && isPhoto
+//                    val captureVideo = captureEnabled && isVideo
+
                     when (fileChooserParams?.mode) {
-                        FileChooserParams.MODE_OPEN ->
-                            launcherFilePicker.launch(
-                                Intent.createChooser(Intent().setType("*/*").setAction(Intent.ACTION_GET_CONTENT), "Select a file")
-                            )
-                        FileChooserParams.MODE_OPEN_MULTIPLE ->
-                            launcherFilePicker.launch(
-                                Intent.createChooser(
-                                    Intent().setType("*/*").setAction(Intent.ACTION_GET_CONTENT)
-                                        .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), "Select a file"
+                        FileChooserParams.MODE_OPEN -> {
+//                            if(capturePhoto){
+//                                val directory = File(context.filesDir, "camera_images")
+//                                if (!directory.exists())
+//                                    directory.mkdirs()
+//                                val file = File(directory, "${System.currentTimeMillis()}.jpg")
+////                                photoUri = Uri.fromFile(file)
+//                                photoUri = FileProvider. getUriForFile (requireContext(), requireContext().applicationContext.packageName +".provider", file)
+//
+//                                if (ContextCompat.checkSelfPermission(requireContext(), android.Manifest.permission.CAMERA)
+//                                    == PackageManager.PERMISSION_GRANTED
+//                                ) launcherCamera.launch(photoUri)
+//                                else
+//                                    permissionRequestLauncher.launch(android.Manifest.permission.CAMERA)
+//                            }
+//                            else
+                            if (isPhoto)
+                                launcherSingleMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            else if (isVideo)
+                                launcherSingleMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                            else
+                                launcherFilePicker.launch(Intent.createChooser(Intent().setType("*/*").setAction(Intent.ACTION_GET_CONTENT), "Select a file"))
+                            isFilePickerActive = true
+                        }
+                        FileChooserParams.MODE_OPEN_MULTIPLE ->{
+                            if(isPhoto)
+                                launcherMultipleMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            else if(isVideo)
+                                launcherMultipleMediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                            else {
+                                launcherFilePicker.launch(
+                                    Intent.createChooser(
+                                        Intent().setType("*/*").setAction(Intent.ACTION_GET_CONTENT)
+                                            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true),
+                                        "Select files"
+                                    )
                                 )
-                            )
+                            }
+                            isFilePickerActive = true
+                        }
+
                     }
                     return true
+//                    return super.onShowFileChooser(webView, filePathCallback, fileChooserParams)
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest) {
+                    permissionRequest = request
                     Log.d(TAG, "onPermissionRequest")
                     lifecycleScope.launch {
                         Log.d(TAG, request.origin.toString())
@@ -210,7 +287,6 @@ class WebViewFragment : Fragment() {
 
                                 PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID ->
                                     permissionRequestLauncher.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-
                             }
                         }
                         if (request.toString() == "file:///") {
@@ -233,7 +309,10 @@ class WebViewFragment : Fragment() {
             val toolbar = activity?.findViewById<Toolbar>(R.id.toolbar)
             toolbar?.title = if (pageName == "Home") "PRAN-RFL Group" else pageName
         }
-        binding.webView.loadUrl(viewModel.getLastBrowsedLink())
+        if(!isFilePickerActive)
+            binding.webView.loadUrl(viewModel.getLastBrowsedLink())
+        else
+            isFilePickerActive = false
     }
 
     override fun onPause() {
@@ -245,5 +324,6 @@ class WebViewFragment : Fragment() {
 
     companion object {
         private const val TAG = "WebViewFragment"
+        private var isFilePickerActive = false
     }
 }
