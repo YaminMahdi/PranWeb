@@ -4,19 +4,22 @@ import androidx.annotation.DrawableRes
 
 enum class Website(val url: String,@DrawableRes val icon: Int = R.drawable.web) {
     Home("https://www.google.com.bd/", R.drawable.home),
-    HRIS("http://hrms.prangroup.com:8283/ya"),
-    BanglalinkSMSCrop("http://smscorp.banglalinkgsm.com/smscorp/home.php?login=Y"),
-    EducationBoardResults("http://www.educationboardresults.gov.bd/"),
-    GoogleTranslate("https://translate.google.com.bd/?hl=bn"),
-    ReversoSpellChecker("http://www.reverso.net/spell-checker/english-spelling-grammar/"),
-    BengaliTyping("http://bengali.indiatyping.com/"),
-    PrismProject("http://103.206.184.65:998/PRISM/Project/invlogin/index.php")
+    PIP_MISContactList("file:///android_asset/contact_list.html"),
+    PIP_MIS("http://pipmis.pip.prangroup.com"),
+    HRIS("https://hris.prangroup.com:777/Login.aspx"),
+    Dispatch("http://hrms.prangroup.com:8283/ya/Login.aspx"),
+    SmartManufacturing("http://prod.rflgroupbd.com:5000"),
+    QC_PRAN_RFL("http://pqc.prangroup.com:8111/login"),
+    FileShare("https://fs.prangroup.com"),
+    FrozenFood("http://frozenfood.prangroup.com:7082"),
+    PMC_eBill("http://pmc.prangroup.com/ebill/Login/Index")
     // Add more websites as needed
 }
 
 
 val Website.pageName
     get() =name
+        .replace('_', ' ')
         .replace(Regex("([a-z])([A-Z])"), "$1 $2")
         .replace(Regex("([A-Z])([A-Z])([a-z])"), "$1 $2$3")
 
